@@ -1595,21 +1595,31 @@ table.shell-table tbody tr:hover { background: color-mix(in srgb, var(--accent) 
       };
     }
 
-    // Fetch and merge suppliers from Supabase
+    // Fetch and merge suppliers from Supabase with 6s timeout guarantee
     async function syncPullFromSupabase(isManual = false) {
       try {
-        let remoteData = null;
+        const fetchPromise = (async () => {
+          if (!supabaseClient) {
+            await initSupabase();
+          }
+          if (supabaseClient) {
+            const { data, error } = await supabaseClient
+              .from(SUPABASE_TABLE)
+              .select("*");
+            if (error) throw error;
+            return data;
+          } else {
+            return await supabaseRestFetch(`${SUPABASE_TABLE}?select=*`);
+          }
+        })();
 
-        if (supabaseClient) {
-          const { data, error } = await supabaseClient
-            .from(SUPABASE_TABLE)
-            .select("*");
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => {
+            reject(new Error("Timeout de conexão com a nuvem (6s)"));
+          }, 6000);
+        });
 
-          if (error) throw error;
-          remoteData = data;
-        } else {
-          remoteData = await supabaseRestFetch(`${SUPABASE_TABLE}?select=*`);
-        }
+        const remoteData = await Promise.race([fetchPromise, timeoutPromise]);
 
         if (Array.isArray(remoteData)) {
           const normalizeName = n => (n || "").toLowerCase().replace(/\s+/g, "").trim();
@@ -1640,9 +1650,8 @@ table.shell-table tbody tr:hover { background: color-mix(in srgb, var(--accent) 
               localMap.set(norm, true);
               mergedCount++;
             } else {
-              // Update local ID if remote has valid ID
               const existing = localMap.get(norm);
-              if (existing && item.id) {
+              if (existing && typeof existing === "object" && item.id) {
                 existing.id = item.id;
               }
             }
@@ -1656,11 +1665,11 @@ table.shell-table tbody tr:hover { background: color-mix(in srgb, var(--accent) 
           }
         }
       } catch (err) {
-        console.warn("Não foi possível sincronizar com o Supabase:", err);
+        console.warn("Falha ou timeout na sincronização com o Supabase:", err);
         updateCloudStatusBadge("offline");
-        if (isManual) {
-          showToast("Não foi possível sincronizar com a nuvem agora. Seus dados ficam salvos neste aparelho.", 4500);
-        }
+        showToast("Não foi possível sincronizar com a nuvem agora. Mostrando os dados salvos neste aparelho.", 4500);
+      } finally {
+        render();
       }
     }
 
@@ -3374,16 +3383,22 @@ table.shell-table tbody tr:hover { background: color-mix(in srgb, var(--accent) 
 
     // INITIALIZATION
     document.addEventListener("DOMContentLoaded", async () => {
-      loadSuppliers();
-      render();
-
-      // Automatic cloud connection on app startup
       try {
-        await initSupabase();
+        loadSuppliers();
+      } catch (e) {
+        console.error("Erro ao carregar dados locais:", e);
+      } finally {
+        render();
+      }
+
+      // Automatic cloud connection on app startup with timeout guarantee
+      try {
         await syncPullFromSupabase(false);
       } catch (e) {
         console.warn("Inicialização da nuvem offline:", e);
         updateCloudStatusBadge("offline");
+      } finally {
+        render();
       }
     });
   </script>
