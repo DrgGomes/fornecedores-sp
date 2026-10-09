@@ -952,9 +952,9 @@ table.shell-table tbody tr:hover { background: color-mix(in srgb, var(--accent) 
         <p>Atacado Brás, Feira da Madrugada &amp; 25 de Março</p>
       </div>
       <div class="header-actions">
-        <button class="cloud-status-badge status-warning" id="btnCloudStatus" title="Clique para configurar o Supabase">
-          <span id="cloudStatusIcon">⚠️</span>
-          <span id="cloudStatusLabel">Configurar nuvem</span>
+        <button class="cloud-status-badge status-connected" id="btnCloudStatus" title="Status da conexão com a nuvem Supabase">
+          <span id="cloudStatusIcon">☁️</span>
+          <span id="cloudStatusLabel">Nuvem conectada</span>
         </button>
         <button class="btn-header" id="btnSettings" title="Configurações da Nuvem">
           ⚙️
@@ -1134,35 +1134,32 @@ table.shell-table tbody tr:hover { background: color-mix(in srgb, var(--accent) 
     </div>
   </div>
 
-  <!-- Settings Modal (Supabase Config) -->
+  <!-- Settings Modal (Supabase Config & Status) -->
   <div class="modal-backdrop" id="modalSettingsBackdrop" role="dialog" aria-modal="true">
     <div class="modal-dialog">
       <div class="modal-header">
-        <h2>⚙️ Configuração da Nuvem (Supabase)</h2>
+        <h2>☁️ Nuvem Supabase Integrada</h2>
         <button class="btn-close" id="btnCloseSettings" aria-label="Fechar">&times;</button>
       </div>
       <div class="modal-body">
         <p style="font-size:0.85rem; color:#475569; margin-top:0;">
-          Conecte seu banco de dados Supabase para salvar, sincronizar e manter os fornecedores na nuvem em tempo real.
+          A conexão com a nuvem Supabase já está <b>embutida e conectada automaticamente</b>. Qualquer cadastro, edição ou exclusão é sincronizado em tempo real.
         </p>
 
         <form id="supabaseConfigForm" novalidate>
           <div class="form-group">
-            <label class="form-label" for="cfgSupabaseUrl">URL do projeto Supabase</label>
-            <input type="url" id="cfgSupabaseUrl" class="form-control" placeholder="https://seu-projeto.supabase.co">
-            <span style="font-size:0.72rem; color:#64748b;">Disponível no painel do Supabase em Project Settings &gt; API</span>
+            <label class="form-label" for="cfgSupabaseUrl">URL do Supabase</label>
+            <input type="url" id="cfgSupabaseUrl" class="form-control" readonly style="background:#f8fafc; color:#334155;">
           </div>
 
           <div class="form-group">
-            <label class="form-label" for="cfgSupabaseKey">Chave anônima (anon key)</label>
-            <input type="text" id="cfgSupabaseKey" class="form-control" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...">
-            <span style="font-size:0.72rem; color:#64748b;">Chave pública com permissão de SELECT/INSERT/UPDATE/DELETE</span>
+            <label class="form-label" for="cfgSupabaseKey">Chave Pública (Anon Key)</label>
+            <input type="text" id="cfgSupabaseKey" class="form-control" readonly style="background:#f8fafc; color:#334155; font-family:monospace; font-size:0.8rem;">
           </div>
 
           <div class="form-group">
-            <label class="form-label" for="cfgSupabaseTable">Nome da tabela</label>
-            <input type="text" id="cfgSupabaseTable" class="form-control" value="fornecedores" placeholder="fornecedores">
-            <span style="font-size:0.72rem; color:#64748b;">Padrão: <code>fornecedores</code></span>
+            <label class="form-label" for="cfgSupabaseTable">Tabela</label>
+            <input type="text" id="cfgSupabaseTable" class="form-control" readonly style="background:#f8fafc; color:#334155;">
           </div>
 
           <div id="cfgFeedbackBox" style="display:none; padding:10px 12px; border-radius:8px; font-size:0.82rem; margin-bottom:14px;"></div>
@@ -1171,17 +1168,8 @@ table.shell-table tbody tr:hover { background: color-mix(in srgb, var(--accent) 
             <button type="button" class="btn" id="btnTestSupabase" style="flex:1; background:#e0e7ff; color:#3730a3; font-weight:700; padding:10px;">
               🔍 Testar conexão
             </button>
-            <button type="submit" class="btn btn-primary" style="flex:1; background:#059669; color:#fff; font-weight:700; padding:10px;">
-              💾 Salvar configuração
-            </button>
-          </div>
-
-          <div style="margin-top:16px; padding-top:14px; border-top:1px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center;">
-            <button type="button" class="btn" id="btnSyncNow" style="background:#f1f5f9; color:#334155; font-size:0.8rem; font-weight:600; padding:6px 12px;">
+            <button type="button" class="btn btn-primary" id="btnSyncNow" style="flex:1; background:#059669; color:#fff; font-weight:700; padding:10px;">
               🔄 Sincronizar agora
-            </button>
-            <button type="button" class="btn" id="btnClearConfig" style="color:#dc2626; background:transparent; font-size:0.8rem; text-decoration:underline;">
-              Desconectar nuvem
             </button>
           </div>
         </form>
@@ -1237,10 +1225,570 @@ table.shell-table tbody tr:hover { background: color-mix(in srgb, var(--accent) 
   <div class="toast-container" id="toastContainer"></div>
 
   <script>
-    // SEED INITIAL DATA (16 real suppliers)
+    // FUNCIONALIDADE 1: SUPABASE CONFIG & SYNC
+    // ==========================================
+
+    function loadSupabaseConfig() {
+      try {
+        const raw = localStorage.getItem(CONFIG_STORAGE_KEY);
+        if (raw) {
+          supabaseConfig = JSON.parse(raw);
+          if (!supabaseConfig.table) supabaseConfig.table = "fornecedores";
+        } else {
+          supabaseConfig = null;
+        }
+      } catch (e) {
+        console.error("Erro ao ler configuração do Supabase:", e);
+        supabaseConfig = null;
+      }
+      return supabaseConfig;
+    }
+
+    function saveSupabaseConfig(url, key, table) {
+      const cleanUrl = (url || "").trim().replace(/\/+$/, "");
+      const cleanKey = (key || "").trim();
+      const cleanTable = (table || "fornecedores").trim() || "fornecedores";
+
+      supabaseConfig = {
+        url: cleanUrl,
+        key: cleanKey,
+        table: cleanTable
+      };
+      localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(supabaseConfig));
+    }
+
+    // Generic REST fetch to Supabase (compatible with Supabase PostgREST)
+    async function supabaseFetch(endpoint, options = {}) {
+      if (!supabaseConfig || !supabaseConfig.url || !supabaseConfig.key) {
+        throw new Error("Configuração do Supabase ausente ou incompleta.");
+      }
+
+      const cleanUrl = supabaseConfig.url.replace(/\/+$/, "");
+      const fullUrl = `${cleanUrl}/rest/v1/${endpoint}`;
+
+      const headers = {
+        "apikey": supabaseConfig.key,
+        "Authorization": `Bearer ${supabaseConfig.key}`,
+        "Content-Type": "application/json",
+        "Prefer": options.prefer || "return=representation",
+        ...(options.headers || {})
+      };
+
+      const res = await fetch(fullUrl, {
+        method: options.method || "GET",
+        headers,
+        body: options.body ? JSON.stringify(options.body) : undefined
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Erro Supabase (${res.status}): ${errText}`);
+      }
+
+      const text = await res.text();
+      return text ? JSON.parse(text) : null;
+    }
+
+    // Test Supabase connection
+    async function testSupabaseConnection(url, key, table) {
+      const cleanUrl = (url || "").trim().replace(/\/+$/, "");
+      const cleanKey = (key || "").trim();
+      const cleanTable = (table || "fornecedores").trim();
+
+      if (!cleanUrl || !cleanKey) {
+        throw new Error("Preencha a URL e a Anon Key do Supabase.");
+      }
+
+      const fullUrl = `${cleanUrl}/rest/v1/${cleanTable}?select=id&limit=1`;
+      const res = await fetch(fullUrl, {
+        method: "GET",
+        headers: {
+          "apikey": cleanKey,
+          "Authorization": `Bearer ${cleanKey}`
+        }
+      });
+
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(`Status ${res.status}: ${txt || res.statusText}`);
+      }
+
+      return true;
+    }
+
+    // Sync from Supabase (pull & merge)
+    async function syncPullFromSupabase(isManual = false) {
+      if (!supabaseConfig || !supabaseConfig.url || !supabaseConfig.key) {
+        updateCloudStatusBadge("warning");
+        return;
+      }
+
+      try {
+        const table = supabaseConfig.table || "fornecedores";
+        const remoteData = await supabaseFetch(`${table}?select=*`);
+
+        if (Array.isArray(remoteData)) {
+          const normalizeName = n => (n || "").toLowerCase().replace(/\s+/g, "").trim();
+          const localMap = new Map();
+          suppliers.forEach(s => {
+            localMap.set(normalizeName(s.nome), s);
+          });
+
+          let mergedCount = 0;
+          remoteData.forEach(item => {
+            if (!item.nome) return;
+            const norm = normalizeName(item.nome);
+            if (!localMap.has(norm)) {
+              suppliers.push({
+                id: item.id || generateUUID(),
+                nome: item.nome || "",
+                produtos: item.produtos || "",
+                bairro: item.bairro || "Outro",
+                contato: cleanDigits(item.contato || ""),
+                endereco: item.endereco || "",
+                link: item.link || "",
+                foto: item.foto || "",
+                foto_cartao: item.foto_cartao || "",
+                observacoes: item.observacoes || "",
+                lat: item.lat || "",
+                lng: item.lng || ""
+              });
+              localMap.set(norm, true);
+              mergedCount++;
+            }
+          });
+
+          saveSuppliers();
+          updateCloudStatusBadge("connected");
+
+          if (isManual) {
+            showToast(`Nuvem conectada! ${mergedCount > 0 ? mergedCount + ' novos fornecedores baixados.' : 'Dados sincronizados.'}`);
+          }
+        }
+      } catch (err) {
+        console.warn("Falha na sincronização com o Supabase:", err);
+        updateCloudStatusBadge("offline");
+        showToast("Não foi possível sincronizar com a nuvem agora. Seus dados ficam salvos neste aparelho.", 4500);
+      }
+    }
+
+    // Sync save (insert/update) to Supabase
+    async function syncSaveToSupabase(supplier, isNew = false) {
+      if (!supabaseConfig || !supabaseConfig.url || !supabaseConfig.key) return;
+
+      try {
+        const table = supabaseConfig.table || "fornecedores";
+        const payload = {
+          nome: supplier.nome,
+          produtos: supplier.produtos,
+          bairro: supplier.bairro || "Outro",
+          contato: supplier.contato || "",
+          endereco: supplier.endereco || "",
+          link: supplier.link || "",
+          foto: supplier.foto || "",
+          foto_cartao: supplier.foto_cartao || "",
+          observacoes: supplier.observacoes || "",
+          lat: supplier.lat ? parseFloat(supplier.lat) : null,
+          lng: supplier.lng ? parseFloat(supplier.lng) : null
+        };
+
+        // If ID is a valid UUID, include it; otherwise let Supabase generate or use as-is
+        if (supplier.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(supplier.id)) {
+          payload.id = supplier.id;
+        }
+
+        if (isNew) {
+          await supabaseFetch(table, {
+            method: "POST",
+            body: payload,
+            prefer: "return=representation"
+          });
+        } else {
+          // Try patch by id or upsert
+          const query = supplier.id ? `${table}?id=eq.${supplier.id}` : `${table}?nome=eq.${encodeURIComponent(supplier.nome)}`;
+          await supabaseFetch(query, {
+            method: "PATCH",
+            body: payload
+          });
+        }
+        updateCloudStatusBadge("connected");
+      } catch (err) {
+        console.warn("Erro ao salvar no Supabase:", err);
+        updateCloudStatusBadge("offline");
+        showToast("Não foi possível sincronizar com a nuvem agora. Seus dados ficam salvos neste aparelho.", 4500);
+      }
+    }
+
+    // Sync delete to Supabase
+    async function syncDeleteToSupabase(supplierId) {
+      if (!supabaseConfig || !supabaseConfig.url || !supabaseConfig.key) return;
+
+      try {
+        const table = supabaseConfig.table || "fornecedores";
+        const query = `${table}?id=eq.${supplierId}`;
+        await supabaseFetch(query, {
+          method: "DELETE"
+        });
+        updateCloudStatusBadge("connected");
+      } catch (err) {
+        console.warn("Erro ao excluir no Supabase:", err);
+        updateCloudStatusBadge("offline");
+      }
+    }
+
+    // Config form listeners
+    supabaseConfigForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const url = cfgSupabaseUrl.value.trim();
+      const key = cfgSupabaseKey.value.trim();
+      const table = cfgSupabaseTable.value.trim() || "fornecedores";
+
+      if (!url || !key) {
+        cfgFeedbackBox.style.display = "block";
+        cfgFeedbackBox.style.background = "#fee2e2";
+        cfgFeedbackBox.style.color = "#991b1b";
+        cfgFeedbackBox.textContent = "Por favor, preencha a URL e a Chave do Supabase.";
+        return;
+      }
+
+      saveSupabaseConfig(url, key, table);
+      cfgFeedbackBox.style.display = "block";
+      cfgFeedbackBox.style.background = "#dcfce7";
+      cfgFeedbackBox.style.color = "#166534";
+      cfgFeedbackBox.textContent = "Configuração salva com sucesso! Sincronizando...";
+
+      await syncPullFromSupabase(true);
+      setTimeout(() => {
+        closeSettingsModal();
+      }, 1200);
+    });
+
+    btnTestSupabase.addEventListener("click", async () => {
+      const url = cfgSupabaseUrl.value.trim();
+      const key = cfgSupabaseKey.value.trim();
+      const table = cfgSupabaseTable.value.trim() || "fornecedores";
+
+      cfgFeedbackBox.style.display = "block";
+      cfgFeedbackBox.style.background = "#eff6ff";
+      cfgFeedbackBox.style.color = "#1d4ed8";
+      cfgFeedbackBox.innerHTML = `<span>⏳ Testando conexão com a tabela <b>${escapeHtml(table)}</b>...</span>`;
+
+      try {
+        await testSupabaseConnection(url, key, table);
+        cfgFeedbackBox.style.background = "#dcfce7";
+        cfgFeedbackBox.style.color = "#166534";
+        cfgFeedbackBox.innerHTML = `<span>✅ Conexão bem-sucedida! Tabela acessível na nuvem.</span>`;
+        updateCloudStatusBadge("connected");
+      } catch (err) {
+        cfgFeedbackBox.style.background = "#fee2e2";
+        cfgFeedbackBox.style.color = "#991b1b";
+        cfgFeedbackBox.innerHTML = `<span>❌ Falha na conexão: ${escapeHtml(err.message)}</span>`;
+        updateCloudStatusBadge("offline");
+      }
+    });
+
+    btnSyncNow.addEventListener("click", async () => {
+      await syncPullFromSupabase(true);
+    });
+
+    btnClearConfig.addEventListener("click", () => {
+      if (confirm("Deseja desconectar a nuvem? Seus dados locais serão mantidos.")) {
+        localStorage.removeItem(CONFIG_STORAGE_KEY);
+        supabaseConfig = null;
+        cfgSupabaseUrl.value = "";
+        cfgSupabaseKey.value = "";
+        cfgSupabaseTable.value = "fornecedores";
+        updateCloudStatusBadge("warning");
+        cfgFeedbackBox.style.display = "block";
+        cfgFeedbackBox.style.background = "#f1f5f9";
+        cfgFeedbackBox.style.color = "#334155";
+        cfgFeedbackBox.textContent = "Nuvem desconectada. O app agora opera apenas localmente.";
+        showToast("Configuração da nuvem removida.");
+      }
+    });
+=======
+    // ==========================================
+    // SUPABASE CLIENT & AUTOMATIC SYNC
+    // ==========================================
+
+    let supabaseScriptLoading = null;
+
+    // Load supabase-js dynamically
+    function loadSupabaseJs() {
+      if (window.supabase && typeof window.supabase.createClient === "function") {
+        return Promise.resolve(window.supabase);
+      }
+      if (supabaseScriptLoading) return supabaseScriptLoading;
+
+      supabaseScriptLoading = new Promise((resolve) => {
+        const s = document.createElement("script");
+        s.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
+        s.async = true;
+        s.onload = () => resolve(window.supabase);
+        s.onerror = (err) => {
+          console.warn("Não foi possível carregar supabase-js via CDN, utilizando fallback REST direto:", err);
+          resolve(null);
+        };
+        document.head.appendChild(s);
+      });
+
+      return supabaseScriptLoading;
+    }
+
+    // Direct PostgREST HTTP fallback in case of SDK failure or offline
+    async function supabaseRestFetch(endpoint, options = {}) {
+      const fullUrl = `${SUPABASE_URL.replace(/\/+$/, "")}/rest/v1/${endpoint}`;
+      const headers = {
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+        "Content-Type": "application/json",
+        "Prefer": options.prefer || "return=representation",
+        ...(options.headers || {})
+      };
+
+      const res = await fetch(fullUrl, {
+        method: options.method || "GET",
+        headers,
+        body: options.body ? JSON.stringify(options.body) : undefined
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Erro Supabase (${res.status}): ${errText || res.statusText}`);
+      }
+
+      const text = await res.text();
+      return text ? JSON.parse(text) : null;
+    }
+
+    // Initialize Supabase client
+    async function initSupabase() {
+      try {
+        const sb = await loadSupabaseJs();
+        if (sb && typeof sb.createClient === "function") {
+          supabaseClient = sb.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        }
+      } catch (e) {
+        console.warn("Aviso ao instanciar Supabase:", e);
+      }
+    }
+
+    // Helper to sanitize payload for Supabase table schema
+    function buildSupabasePayload(sup) {
+      const validUUID = (sup.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sup.id))
+        ? sup.id
+        : generateUUID();
+
+      return {
+        id: validUUID,
+        nome: (sup.nome || "").trim(),
+        produtos: (sup.produtos || "").trim(),
+        bairro: sup.bairro || "Outro",
+        contato: cleanDigits(sup.contato || ""),
+        endereco: (sup.endereco || "").trim(),
+        link: (sup.link || "").trim(),
+        foto: sup.foto || "",
+        foto_cartao: sup.foto_cartao || "",
+        observacoes: (sup.observacoes || "").trim(),
+        lat: sup.lat ? parseFloat(sup.lat) : null,
+        lng: sup.lng ? parseFloat(sup.lng) : null
+      };
+    }
+
+    // Fetch and merge suppliers from Supabase
+    async function syncPullFromSupabase(isManual = false) {
+      try {
+        let remoteData = null;
+
+        if (supabaseClient) {
+          const { data, error } = await supabaseClient
+            .from(SUPABASE_TABLE)
+            .select("*");
+
+          if (error) throw error;
+          remoteData = data;
+        } else {
+          remoteData = await supabaseRestFetch(`${SUPABASE_TABLE}?select=*`);
+        }
+
+        if (Array.isArray(remoteData)) {
+          const normalizeName = n => (n || "").toLowerCase().replace(/\s+/g, "").trim();
+          const localMap = new Map();
+          suppliers.forEach(s => {
+            localMap.set(normalizeName(s.nome), s);
+          });
+
+          let mergedCount = 0;
+          remoteData.forEach(item => {
+            if (!item.nome) return;
+            const norm = normalizeName(item.nome);
+            if (!localMap.has(norm)) {
+              suppliers.push({
+                id: item.id || generateUUID(),
+                nome: item.nome || "",
+                produtos: item.produtos || "",
+                bairro: item.bairro || "Outro",
+                contato: cleanDigits(item.contato || ""),
+                endereco: item.endereco || "",
+                link: item.link || "",
+                foto: item.foto || "",
+                foto_cartao: item.foto_cartao || "",
+                observacoes: item.observacoes || "",
+                lat: item.lat || "",
+                lng: item.lng || ""
+              });
+              localMap.set(norm, true);
+              mergedCount++;
+            } else {
+              // Update local ID if remote has valid ID
+              const existing = localMap.get(norm);
+              if (existing && item.id) {
+                existing.id = item.id;
+              }
+            }
+          });
+
+          saveSuppliers();
+          updateCloudStatusBadge("connected");
+
+          if (isManual) {
+            showToast(`Nuvem conectada! ${mergedCount > 0 ? mergedCount + ' novos fornecedores sincronizados.' : 'Dados atualizados com sucesso.'}`);
+          }
+        }
+      } catch (err) {
+        console.warn("Não foi possível sincronizar com o Supabase:", err);
+        updateCloudStatusBadge("offline");
+        if (isManual) {
+          showToast("Não foi possível sincronizar com a nuvem agora. Seus dados ficam salvos neste aparelho.", 4500);
+        }
+      }
+    }
+
+    // Sync save to Supabase (insert or update)
+    async function syncSaveToSupabase(supplier, isNew = false) {
+      const payload = buildSupabasePayload(supplier);
+      // Ensure local supplier has the valid UUID
+      supplier.id = payload.id;
+
+      try {
+        if (supabaseClient) {
+          if (isNew) {
+            const { error } = await supabaseClient
+              .from(SUPABASE_TABLE)
+              .insert([payload]);
+            if (error) throw error;
+          } else {
+            const { error } = await supabaseClient
+              .from(SUPABASE_TABLE)
+              .upsert(payload);
+            if (error) throw error;
+          }
+        } else {
+          if (isNew) {
+            await supabaseRestFetch(SUPABASE_TABLE, {
+              method: "POST",
+              body: payload
+            });
+          } else {
+            await supabaseRestFetch(`${SUPABASE_TABLE}?id=eq.${encodeURIComponent(payload.id)}`, {
+              method: "PATCH",
+              body: payload
+            });
+          }
+        }
+
+        updateCloudStatusBadge("connected");
+      } catch (err) {
+        console.warn("Erro ao salvar no Supabase (salvo localmente):", err);
+        updateCloudStatusBadge("offline");
+        showToast("Não foi possível sincronizar com a nuvem agora. Seus dados ficam salvos neste aparelho.", 4500);
+      }
+    }
+
+    // Sync delete to Supabase
+    async function syncDeleteToSupabase(supplierId) {
+      if (!supplierId) return;
+
+      try {
+        if (supabaseClient) {
+          const { error } = await supabaseClient
+            .from(SUPABASE_TABLE)
+            .delete()
+            .eq("id", supplierId);
+          if (error) throw error;
+        } else {
+          await supabaseRestFetch(`${SUPABASE_TABLE}?id=eq.${encodeURIComponent(supplierId)}`, {
+            method: "DELETE"
+          });
+        }
+        updateCloudStatusBadge("connected");
+      } catch (err) {
+        console.warn("Erro ao remover no Supabase:", err);
+        updateCloudStatusBadge("offline");
+        showToast("Removido localmente. Sincronização pendente na nuvem.", 4000);
+      }
+    }
+
+    // Modal settings buttons
+    btnTestSupabase.addEventListener("click", async () => {
+      cfgFeedbackBox.style.display = "block";
+      cfgFeedbackBox.style.background = "#eff6ff";
+      cfgFeedbackBox.style.color = "#1d4ed8";
+      cfgFeedbackBox.innerHTML = `<span>⏳ Testando conexão com a tabela <b>${escapeHtml(SUPABASE_TABLE)}</b>...</span>`;
+
+      try {
+        let testOk = false;
+        if (supabaseClient) {
+          const { error } = await supabaseClient.from(SUPABASE_TABLE).select("id").limit(1);
+          if (error) throw error;
+          testOk = true;
+        } else {
+          await supabaseRestFetch(`${SUPABASE_TABLE}?select=id&limit=1`);
+          testOk = true;
+        }
+
+        if (testOk) {
+          cfgFeedbackBox.style.background = "#dcfce7";
+          cfgFeedbackBox.style.color = "#166534";
+          cfgFeedbackBox.innerHTML = `<span>✅ Conexão ativa e funcionando perfeitamente!</span>`;
+          updateCloudStatusBadge("connected");
+        }
+      } catch (err) {
+        cfgFeedbackBox.style.background = "#fee2e2";
+        cfgFeedbackBox.style.color = "#991b1b";
+        cfgFeedbackBox.innerHTML = `<span>❌ Falha na conexão: ${escapeHtml(err.message || 'Erro de rede')}</span>`;
+        updateCloudStatusBadge("offline");
+      }
+    });
+
+    btnSyncNow.addEventListener("click", async () => {
+      cfgFeedbackBox.style.display = "block";
+      cfgFeedbackBox.style.background = "#eff6ff";
+      cfgFeedbackBox.style.color = "#1d4ed8";
+      cfgFeedbackBox.innerHTML = `<span>🔄 Sincronizando dados com a nuvem...</span>`;
+
+      await syncPullFromSupabase(true);
+
+      if (cloudStatus === "connected") {
+        cfgFeedbackBox.style.background = "#dcfce7";
+        cfgFeedbackBox.style.color = "#166534";
+        cfgFeedbackBox.innerHTML = `<span>✅ Sincronização concluída com sucesso!</span>`;
+      } else {
+        cfgFeedbackBox.style.background = "#fef3c7";
+        cfgFeedbackBox.style.color = "#92400e";
+        cfgFeedbackBox.innerHTML = `<span>⚠️ Não foi possível sincronizar agora. Os dados estão preservados no aparelho.</span>`;
+      }
+    });==========================================
+    // CONFIGURAÇÃO EMBUTIDA DO SUPABASE
+    // ==========================================
+    const SUPABASE_URL = "https://ictpmfexoevjvfhogxdq.supabase.co";
+    const SUPABASE_ANON_KEY = "sb_publishable_XBsFibmEXyfTq7OOWJoKng_hv34CNxN";
+    const SUPABASE_TABLE = "fornecedores";
+
+    // SEED INITIAL DATA (16 fornecedores com UUIDs compatíveis com Postgres)
     const SEED_DATA = [
       {
-        id: "seed-1",
+        id: "00000000-0000-4000-8000-000000000001",
         nome: "Rei dos Bonés",
         produtos: "Bonés, cintos, carteiras, camisetas, gorros, viseiras, meias",
         bairro: "Brás",
@@ -1250,11 +1798,11 @@ table.shell-table tbody tr:hover { background: color-mix(in srgb, var(--accent) 
         observacoes: "Atacado e variedades de bonés e acessórios",
         foto: "",
         foto_cartao: "",
-        lat: "",
-        lng: ""
+        lat: null,
+        lng: null
       },
       {
-        id: "seed-2",
+        id: "00000000-0000-4000-8000-000000000002",
         nome: "MHF Caps",
         produtos: "Bonés, bolsas, mochilas, malas para viagem",
         bairro: "Brás",
@@ -1263,11 +1811,12 @@ table.shell-table tbody tr:hover { background: color-mix(in srgb, var(--accent) 
         link: "",
         observacoes: "",
         foto: "",
-        lat: "",
-        lng: ""
+        foto_cartao: "",
+        lat: null,
+        lng: null
       },
       {
-        id: "seed-3",
+        id: "00000000-0000-4000-8000-000000000003",
         nome: "DR Atacado & Varejo",
         produtos: "Tênis, camisetas, bermudas, jaquetas",
         bairro: "Brás",
@@ -1276,11 +1825,12 @@ table.shell-table tbody tr:hover { background: color-mix(in srgb, var(--accent) 
         link: "",
         observacoes: "",
         foto: "",
-        lat: "",
-        lng: ""
+        foto_cartao: "",
+        lat: null,
+        lng: null
       },
       {
-        id: "seed-4",
+        id: "00000000-0000-4000-8000-000000000004",
         nome: "John Store",
         produtos: "Artigos esportivos, bonés, chapéus, carteiras, acessórios",
         bairro: "Brás",
@@ -1289,11 +1839,12 @@ table.shell-table tbody tr:hover { background: color-mix(in srgb, var(--accent) 
         link: "",
         observacoes: "",
         foto: "",
-        lat: "",
-        lng: ""
+        foto_cartao: "",
+        lat: null,
+        lng: null
       },
       {
-        id: "seed-5",
+        id: "00000000-0000-4000-8000-000000000005",
         nome: "Casa Chapéu Qiu",
         produtos: "Chapéus, bonés, bolsas, mochilas",
         bairro: "Brás",
@@ -1302,11 +1853,12 @@ table.shell-table tbody tr:hover { background: color-mix(in srgb, var(--accent) 
         link: "",
         observacoes: "",
         foto: "",
-        lat: "",
-        lng: ""
+        foto_cartao: "",
+        lat: null,
+        lng: null
       },
       {
-        id: "seed-6",
+        id: "00000000-0000-4000-8000-000000000006",
         nome: "Galeria Barão",
         produtos: "Roupas e acessórios (mais de 140 lojas)",
         bairro: "Brás",
@@ -1315,11 +1867,12 @@ table.shell-table tbody tr:hover { background: color-mix(in srgb, var(--accent) 
         link: "",
         observacoes: "Galeria atacadista com várias lojas",
         foto: "",
-        lat: "",
-        lng: ""
+        foto_cartao: "",
+        lat: null,
+        lng: null
       },
       {
-        id: "seed-7",
+        id: "00000000-0000-4000-8000-000000000007",
         nome: "Shopping Lotus",
         produtos: "Confecção, calçados, bolsas, cintos, eletrônicos, bijuterias",
         bairro: "Brás",
@@ -1328,11 +1881,12 @@ table.shell-table tbody tr:hover { background: color-mix(in srgb, var(--accent) 
         link: "",
         observacoes: "Shopping com boxes atacadistas",
         foto: "",
-        lat: "",
-        lng: ""
+        foto_cartao: "",
+        lat: null,
+        lng: null
       },
       {
-        id: "seed-8",
+        id: "00000000-0000-4000-8000-000000000008",
         nome: "Galeria Harmonia",
         produtos: "Confecção, calçados, bolsas, cintos, eletrônicos",
         bairro: "Brás",
@@ -1341,11 +1895,12 @@ table.shell-table tbody tr:hover { background: color-mix(in srgb, var(--accent) 
         link: "",
         observacoes: "",
         foto: "",
-        lat: "",
-        lng: ""
+        foto_cartao: "",
+        lat: null,
+        lng: null
       },
       {
-        id: "seed-9",
+        id: "00000000-0000-4000-8000-000000000009",
         nome: "Shopping 950",
         produtos: "Confecção, calçados, bolsas, mochilas, eletrônicos",
         bairro: "Brás",
@@ -1354,11 +1909,12 @@ table.shell-table tbody tr:hover { background: color-mix(in srgb, var(--accent) 
         link: "",
         observacoes: "",
         foto: "",
-        lat: "",
-        lng: ""
+        foto_cartao: "",
+        lat: null,
+        lng: null
       },
       {
-        id: "seed-10",
+        id: "00000000-0000-4000-8000-000000000010",
         nome: "Shopping Bolivia",
         produtos: "Confecção, calçados, bolsas, eletrônicos, informática",
         bairro: "Brás",
@@ -1367,11 +1923,12 @@ table.shell-table tbody tr:hover { background: color-mix(in srgb, var(--accent) 
         link: "",
         observacoes: "",
         foto: "",
-        lat: "",
-        lng: ""
+        foto_cartao: "",
+        lat: null,
+        lng: null
       },
       {
-        id: "seed-11",
+        id: "00000000-0000-4000-8000-000000000011",
         nome: "Bivik Confecções",
         produtos: "Jeans e confecções",
         bairro: "Brás",
@@ -1380,11 +1937,12 @@ table.shell-table tbody tr:hover { background: color-mix(in srgb, var(--accent) 
         link: "https://bivikjeans.com.br",
         observacoes: "",
         foto: "",
-        lat: "",
-        lng: ""
+        foto_cartao: "",
+        lat: null,
+        lng: null
       },
       {
-        id: "seed-12",
+        id: "00000000-0000-4000-8000-000000000012",
         nome: "Junto e Misturado Bonés",
         produtos: "Camisetas, bonés, streetwear, moda masculina",
         bairro: "Brás",
@@ -1393,11 +1951,12 @@ table.shell-table tbody tr:hover { background: color-mix(in srgb, var(--accent) 
         link: "",
         observacoes: "",
         foto: "",
-        lat: "",
-        lng: ""
+        foto_cartao: "",
+        lat: null,
+        lng: null
       },
       {
-        id: "seed-13",
+        id: "00000000-0000-4000-8000-000000000013",
         nome: "Fabio Meias",
         produtos: "Meias, cuecas, pijamas, lingerie",
         bairro: "Brás",
@@ -1406,11 +1965,12 @@ table.shell-table tbody tr:hover { background: color-mix(in srgb, var(--accent) 
         link: "https://zaxapp.com.br/loja/fabio-meias",
         observacoes: "Atacado de meias e lingerie",
         foto: "",
-        lat: "",
-        lng: ""
+        foto_cartao: "",
+        lat: null,
+        lng: null
       },
       {
-        id: "seed-14",
+        id: "00000000-0000-4000-8000-000000000014",
         nome: "Mima Jeans",
         produtos: "Calças jeans femininas",
         bairro: "Brás",
@@ -1419,11 +1979,12 @@ table.shell-table tbody tr:hover { background: color-mix(in srgb, var(--accent) 
         link: "https://zaxapp.com.br/loja/mima-jeans",
         observacoes: "Jeans feminino no atacado",
         foto: "",
-        lat: "",
-        lng: ""
+        foto_cartao: "",
+        lat: null,
+        lng: null
       },
       {
-        id: "seed-15",
+        id: "00000000-0000-4000-8000-000000000015",
         nome: "Emily Presentes",
         produtos: "Bolsas, malas, necessaires, acessórios",
         bairro: "Brás",
@@ -1432,11 +1993,12 @@ table.shell-table tbody tr:hover { background: color-mix(in srgb, var(--accent) 
         link: "https://zaxapp.com.br/loja/emily-presentes",
         observacoes: "",
         foto: "",
-        lat: "",
-        lng: ""
+        foto_cartao: "",
+        lat: null,
+        lng: null
       },
       {
-        id: "seed-16",
+        id: "00000000-0000-4000-8000-000000000016",
         nome: "Feira da Madrugada SP",
         produtos: "Variedades: roupas, acessórios, eletrônicos do Brás e 25 de Março",
         bairro: "Feira da Madrugada",
@@ -1445,18 +2007,18 @@ table.shell-table tbody tr:hover { background: color-mix(in srgb, var(--accent) 
         link: "https://feiradamadrugadasp.com.br",
         observacoes: "Atacado online, compra sem sair de casa",
         foto: "",
-        lat: "",
-        lng: ""
+        foto_cartao: "",
+        lat: null,
+        lng: null
       }
     ];
 
     const STORAGE_KEY = "fornecedores-sp";
-    const CONFIG_STORAGE_KEY = "fornecedores-sp-config";
 
     // Application State
     let suppliers = [];
-    let supabaseConfig = null;
-    let cloudStatus = "warning"; // "connected" | "offline" | "warning"
+    let supabaseClient = null;
+    let cloudStatus = "connected"; // "connected" | "offline"
     let currentFilter = "all";
     let searchQuery = "";
     let activeNavAddress = "";
@@ -1517,7 +2079,6 @@ table.shell-table tbody tr:hover { background: color-mix(in srgb, var(--accent) 
     const cfgFeedbackBox = document.getElementById("cfgFeedbackBox");
     const btnTestSupabase = document.getElementById("btnTestSupabase");
     const btnSyncNow = document.getElementById("btnSyncNow");
-    const btnClearConfig = document.getElementById("btnClearConfig");
 
     // Lightbox modal elements
     const modalLightboxBackdrop = document.getElementById("modalLightboxBackdrop");
@@ -1551,14 +2112,12 @@ table.shell-table tbody tr:hover { background: color-mix(in srgb, var(--accent) 
         btnCloudStatus.classList.add("status-connected");
         cloudStatusIcon.textContent = "☁️";
         cloudStatusLabel.textContent = "Nuvem conectada";
-      } else if (status === "offline") {
+        btnCloudStatus.title = "Nuvem Supabase conectada e sincronizada";
+      } else {
         btnCloudStatus.classList.add("status-offline");
         cloudStatusIcon.textContent = "☁️";
         cloudStatusLabel.textContent = "Offline";
-      } else {
-        btnCloudStatus.classList.add("status-warning");
-        cloudStatusIcon.textContent = "⚠️";
-        cloudStatusLabel.textContent = "Configurar nuvem";
+        btnCloudStatus.title = "Modo offline. Seus dados continuam salvos no aparelho.";
       }
     }
 
@@ -2233,16 +2792,9 @@ table.shell-table tbody tr:hover { background: color-mix(in srgb, var(--accent) 
     btnCloudStatus.addEventListener("click", openSettingsModal);
 
     function openSettingsModal() {
-      loadSupabaseConfig();
-      if (supabaseConfig) {
-        cfgSupabaseUrl.value = supabaseConfig.url || "";
-        cfgSupabaseKey.value = supabaseConfig.key || "";
-        cfgSupabaseTable.value = supabaseConfig.table || "fornecedores";
-      } else {
-        cfgSupabaseUrl.value = "";
-        cfgSupabaseKey.value = "";
-        cfgSupabaseTable.value = "fornecedores";
-      }
+      cfgSupabaseUrl.value = SUPABASE_URL;
+      cfgSupabaseKey.value = SUPABASE_ANON_KEY;
+      cfgSupabaseTable.value = SUPABASE_TABLE;
       cfgFeedbackBox.style.display = "none";
       modalSettingsBackdrop.classList.add("open");
     }
@@ -2821,16 +3373,17 @@ table.shell-table tbody tr:hover { background: color-mix(in srgb, var(--accent) 
     });
 
     // INITIALIZATION
-    document.addEventListener("DOMContentLoaded", () => {
+    document.addEventListener("DOMContentLoaded", async () => {
       loadSuppliers();
       render();
 
-      // Check cloud config and attempt background sync
-      const cfg = loadSupabaseConfig();
-      if (cfg && cfg.url && cfg.key) {
-        syncPullFromSupabase(false);
-      } else {
-        updateCloudStatusBadge("warning");
+      // Automatic cloud connection on app startup
+      try {
+        await initSupabase();
+        await syncPullFromSupabase(false);
+      } catch (e) {
+        console.warn("Inicialização da nuvem offline:", e);
+        updateCloudStatusBadge("offline");
       }
     });
   </script>
